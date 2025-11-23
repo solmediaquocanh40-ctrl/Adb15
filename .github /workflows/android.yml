@@ -1,7 +1,7 @@
 name: Build Android App
 
 on:
-  workflow_dispatch: # Cho phép bấm nút chạy thủ công
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,19 +18,18 @@ jobs:
         with:
           flutter-version: '3.19.0'
       
-      # Tự động sửa lỗi thiếu thư mục Android
+      # SỬA LỖI Ở ĐÂY: Thêm --project-name adb_master để không bị lỗi chữ hoa
       - name: Fix Android Project
         run: |
-          flutter create . --org com.adbmaster
+          flutter create --project-name adb_master . --org com.adbmaster
           flutter pub get
 
-      # Build APK
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons
       
-      # Upload file lên để tải về
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ADB-Master-Final
+          name: ADB-Master-Fixed
           path: build/app/outputs/flutter-apk/app-release.apk
+
