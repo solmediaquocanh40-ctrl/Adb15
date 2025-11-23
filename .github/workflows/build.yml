@@ -8,23 +8,35 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
+      # 1. Lấy code về
       - uses: actions/checkout@v4
-      
+
+      # 2. Cài Java 17 (Bắt buộc cho Android Build mới)
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 3. Cài Flutter
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.19.0'
           channel: 'stable'
       
-      - run: flutter pub get
+      # 4. QUAN TRỌNG: Tự động tạo thư mục Android còn thiếu
+      - name: Create Android Project Structure
+        run: |
+          flutter create . --org com.adbmaster
+          flutter pub get
+
+      # 5. Build APK (Chế độ Release)
+      - name: Build APK
+        run: flutter build apk --release --no-tree-shake-icons
       
-      # Build APK ở chế độ Release (Tối ưu nhất)
-      # --no-tree-shake-icons giúp tránh lỗi icon trên một số môi trường
-      - run: flutter build apk --release --no-tree-shake-icons
-      
+      # 6. Upload file APK lên để bạn tải về
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: adb-master-release
+          name: adb-master-app
           path: build/app/outputs/flutter-apk/app-release.apk
