@@ -1,0 +1,23 @@
+name: adb_master
+description: ADB Master Clone built via GitHub Actions.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Sử dụng phiên bản ổn định, tương thích rộng
+  device_info_plus: ^9.1.0 
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+# Adb15
