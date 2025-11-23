@@ -1,18 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+// Đã bỏ import services để tránh lỗi
 import 'package:device_info_plus/device_info_plus.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUIOverlayStyle(
-    statusBarColor: Colors.transparent,
-    systemNavigationBarColor: Color(0xFF0D1117),
-  ));
+  // ĐÃ XÓA ĐOẠN CODE CHỈNH MÀU THANH TRẠNG THÁI GÂY LỖI
   runApp(const AdbMasterApp());
 }
 
-// ================= CẤU TRÚC DỮ LIỆU =================
 class TweakCommand {
   final String name;
   final String description;
@@ -33,67 +29,45 @@ class TweakCommand {
   });
 }
 
-// ================= DANH SÁCH TWEAK =================
 final List<TweakCommand> masterTweaks = [
   TweakCommand(
     name: "SAMSUNG AUTO OPTIMIZER",
-    description: "Tự động tối ưu độ phân giải cho máy Samsung.",
+    description: "Tu dong toi uu do phan giai.",
     category: "Display",
     command: "samsung_auto_detect",
     isCustomInput: true,
     isSafe: true,
   ),
   TweakCommand(
-    name: "Khôi phục Màn hình Gốc",
-    description: "Reset độ phân giải về mặc định (Cứu máy).",
+    name: "Khoi phuc Man hinh Goc",
+    description: "Reset do phan giai.",
     category: "Display",
     command: "wm size reset; wm density reset",
     isSafe: true,
   ),
   TweakCommand(
-    name: "Kích hoạt Doze Mode",
-    description: "Bắt buộc máy ngủ sâu để tiết kiệm pin.",
-    category: "Battery",
-    command: "dumpsys deviceidle force-idle",
-  ),
-  TweakCommand(
-    name: "FSTRIM (Tăng tốc)",
-    description: "Dọn dẹp bộ nhớ flash giúp máy mượt hơn.",
+    name: "FSTRIM",
+    description: "Don dep bo nho.",
     category: "Performance",
     command: "sm f-trim",
   ),
   TweakCommand(
     name: "Reboot",
-    description: "Khởi động lại thiết bị.",
+    description: "Khoi dong lai.",
     category: "System",
     command: "reboot",
   ),
 ];
 
-// ================= GIAO DIỆN CHÍNH =================
 class AdbMasterApp extends StatelessWidget {
   const AdbMasterApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ADB Master GitHub',
+      title: 'ADB Master Lite',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0D1117),
-        primaryColor: const Color(0xFF00E676),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF00E676),
-          surface: Color(0xFF161B22),
-        ),
-        cardTheme: CardTheme(
-          color: const Color(0xFF161B22),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(color: Colors.white.withOpacity(0.1)),
-          ),
-        ),
-      ),
+      theme: ThemeData.dark(),
       home: const MainScreen(),
     );
   }
@@ -108,7 +82,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   final ScrollController _scrollController = ScrollController();
-  String _terminalOutput = "ADB Master Initialized...\nWaiting for command...\n";
+  String _terminalOutput = "Ready...\n";
   bool _isRooted = false;
   String _deviceModel = "Unknown";
 
@@ -120,17 +94,17 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _getDeviceInfo() async {
-    final deviceInfo = DeviceInfoPlugin();
     try {
+      final deviceInfo = DeviceInfoPlugin();
       if (Platform.isAndroid) {
         final androidInfo = await deviceInfo.androidInfo;
         setState(() {
           _deviceModel = androidInfo.model;
         });
-        _terminalOutput += "> Device detected: $_deviceModel\n";
+        _terminalOutput += "> Device: $_deviceModel\n";
       }
     } catch (e) {
-      // Ignore error on non-android platforms
+      // Ignore error
     }
   }
 
@@ -139,7 +113,7 @@ class _MainScreenState extends State<MainScreen> {
       final result = await Process.run('su', ['-c', 'id']);
       setState(() {
         _isRooted = result.exitCode == 0;
-        _terminalOutput += _isRooted ? "> Root Access: YES\n" : "> Root Access: NO (User Mode)\n";
+        _terminalOutput += _isRooted ? "> Root: YES\n" : "> Root: NO\n";
       });
     } catch (e) {
       setState(() => _isRooted = false);
@@ -147,9 +121,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _executeCommand(String command) async {
-    // Sửa lỗi ký tự $ bằng cách escape (\$)
-    setState(() => _terminalOutput += "\n\$ ${_isRooted ? 'su' : 'sh'} -c '$command'\n");
-    
+    setState(() => _terminalOutput += "\n# $command\n");
     try {
       ProcessResult result;
       if (_isRooted) {
@@ -157,71 +129,43 @@ class _MainScreenState extends State<MainScreen> {
       } else {
         result = await Process.run('sh', ['-c', command]);
       }
-
       String output = result.stdout.toString() + result.stderr.toString();
-      if (output.trim().isEmpty) output = "Done (No Output).";
-
+      if (output.trim().isEmpty) output = "Done.";
       setState(() => _terminalOutput += "$output\n");
     } catch (e) {
       setState(() => _terminalOutput += "Error: $e\n");
     }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-      }
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("ADB MASTER", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00E676))),
-        centerTitle: true,
-        backgroundColor: const Color(0xFF0D1117),
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text("ADB MASTER LITE")),
       body: Column(
         children: [
           Expanded(
-            flex: 7,
             child: ListView.builder(
-              padding: const EdgeInsets.all(8),
               itemCount: masterTweaks.length,
               itemBuilder: (context, index) {
                 final tweak = masterTweaks[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: const Icon(Icons.code, color: Colors.orange),
-                    title: Text(tweak.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                    subtitle: Text(tweak.description, style: TextStyle(color: Colors.grey[400], fontSize: 12)),
-                    trailing: const Icon(Icons.play_arrow, color: Color(0xFF00E676)),
-                    onTap: () => _executeCommand(tweak.command),
-                  ),
+                return ListTile(
+                  title: Text(tweak.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(tweak.description),
+                  trailing: const Icon(Icons.play_arrow),
+                  onTap: () => _executeCommand(tweak.command),
                 );
               },
             ),
           ),
-          const Divider(height: 1, color: Colors.grey),
           Container(
             height: 150,
-            width: double.infinity,
             color: Colors.black,
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
             child: SingleChildScrollView(
               controller: _scrollController,
-              child: Text(
-                _terminalOutput,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  color: Color(0xFF00E676),
-                ),
-              ),
+              child: Text(_terminalOutput, style: const TextStyle(fontFamily: 'monospace', color: Colors.green)),
             ),
-          ),
+          )
         ],
       ),
     );
