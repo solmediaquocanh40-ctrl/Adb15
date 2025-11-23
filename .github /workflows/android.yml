@@ -18,7 +18,8 @@ jobs:
         with:
           flutter-version: '3.19.0'
       
-      # SỬA LỖI Ở ĐÂY: Thêm --project-name adb_master để không bị lỗi chữ hoa
+      # ĐÂY LÀ DÒNG QUAN TRỌNG NHẤT ĐỂ SỬA LỖI TÊN
+      # Phải có chữ "--project-name adb_master"
       - name: Fix Android Project
         run: |
           flutter create --project-name adb_master . --org com.adbmaster
@@ -30,6 +31,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ADB-Master-Fixed
+          name: ADB-Master-V15
           path: build/app/outputs/flutter-apk/app-release.apk
-
