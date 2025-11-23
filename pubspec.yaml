@@ -1,7 +1,7 @@
 name: adb_master
-description: ADB Master V6.1 Clone.
+description: ADB Master V6.2 Non-Root.
 publish_to: 'none'
-version: 6.1.0+1
+version: 6.2.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -9,10 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # Thư viện chọn file cho tab FLASH
-  file_picker: ^6.1.1 
-  # Thư viện icon đẹp
+  file_picker: ^6.1.1
   cupertino_icons: ^1.0.2
+  # Thêm cái này để lấy thông tin bộ nhớ máy
+  disk_space: ^0.3.1
 
 dev_dependencies:
   flutter_test:
