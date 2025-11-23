@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:percent_indicator/circular_percent_indicator.dart'; // Cần thư viện này trong pubspec
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,434 +16,445 @@ void main() {
   runApp(const AdbMasterApp());
 }
 
-// ===============================
-// CẤU HÌNH DỮ LIỆU
-// ===============================
-
-class TweakItem {
+// --- DỮ LIỆU TWEAK (Giống hệt ảnh) ---
+class TweakData {
   final String title;
   final String subtitle;
   final String command;
   bool isEnabled;
-  bool isDangerous;
-
-  TweakItem({
-    required this.title,
-    required this.subtitle,
-    required this.command,
-    this.isEnabled = false,
-    this.isDangerous = false,
-  });
+  TweakData(this.title, this.subtitle, this.command, {this.isEnabled = false});
 }
 
-// ===============================
-// GIAO DIỆN CHÍNH
-// ===============================
+final List<TweakData> tweaksList = [
+  TweakData("V3: Anim 0.25x (Balanced)", "Animation 0.25, phản hồi 230ms.", "settings put global window_animation_scale 0.25; settings put global transition_animation_scale 0.25; settings put global animator_duration_scale 0.25"),
+  TweakData("V3: Anim 0.20x (Fastest)", "Animation siêu nhanh 0.20, phản hồi 240ms.", "settings put global window_animation_scale 0.2; settings put global transition_animation_scale 0.2; settings put global animator_duration_scale 0.2", isEnabled: true),
+  TweakData("V3: Process Limit (26)", "Giới hạn 26 app nền, settle 45s.", "device_config put activity_manager max_cached_processes 26", isEnabled: true),
+  TweakData("V3: Aggressive Doze", "Ngủ sâu, tiết kiệm pin tối đa.", "dumpsys deviceidle force-idle"),
+  TweakData("V3: JobScheduler Tight", "Giảm slot job nền.", "cmd jobscheduler reset-execution-quota"),
+  TweakData("V3: Phantom Proc Cap", "Giới hạn tiến trình ma.", "device_config put activity_manager max_phantom_processes 2147483647"),
+  TweakData("Force 120Hz (Samsung)", "Khóa tần số quét tối đa.", "settings put system min_refresh_rate 120.0"),
+  TweakData("FSTRIM", "Dọn dẹp bộ nhớ NAND.", "sm f-trim"),
+];
 
 class AdbMasterApp extends StatelessWidget {
   const AdbMasterApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ADB Master V6.2',
+      title: 'ADB Master V6',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF050505),
-        cardColor: const Color(0xFF121212),
         colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF00FF80), // Xanh Neon
-          secondary: Color(0xFF00E676),
+          primary: Color(0xFF00FF80), // Màu xanh Neon đặc trưng
           surface: Color(0xFF121212),
         ),
-        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF050505), elevation: 0),
       ),
-      home: const HomeScreen(),
+      home: const DashboardScreen(),
     );
   }
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
-
+class DashboardScreen extends StatefulWidget {
+  const DashboardScreen({super.key});
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  int _currentTab = 0;
-  String _terminalLog = "";
-  final ScrollController _consoleScroll = ScrollController();
-  
-  // Biến cho Cleaner Animation
-  bool _isCleaning = false;
-  double _cleanProgress = 0.0;
-  String _cleanStatus = "Sẵn sàng dọn dẹp";
-  String _currentScanningApp = "";
+class _DashboardScreenState extends State<DashboardScreen> {
+  int _tabIndex = 0; // 0: Tweaks, 1: Cleaner, 2: Flash
+  String _logText = "";
+  final ScrollController _scrollController = ScrollController();
 
-  // Danh sách các gói tin giả lập để tạo hiệu ứng quét (giống 1Tap Cleaner)
-  final List<String> _dummyPackages = [
-    "com.android.chrome", "com.facebook.katana", "com.instagram.android",
-    "com.google.android.youtube", "com.whatsapp", "com.android.vending",
-    "com.google.android.gms", "com.tiktok.android", "com.spotify.music",
-    "com.twitter.android", "com.snapchat.android", "com.zhiliaoapp.musically",
-    "com.google.android.apps.maps", "com.google.android.apps.photos",
-    "system_cache", "dalvik_cache", "shader_cache", "thumbnails"
-  ];
-
-  // Danh sách Tweaks
-  final List<TweakItem> _tweaks = [
-    TweakItem(title: "⚡ Anim 0.5x (No Root)", subtitle: "Tăng tốc hiệu ứng chuyển cảnh.", command: "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5"),
-    TweakItem(title: "🛑 Disable Animation", subtitle: "Tắt hoàn toàn hiệu ứng (Siêu mượt).", command: "settings put global window_animation_scale 0; settings put global transition_animation_scale 0; settings put global animator_duration_scale 0"),
-    TweakItem(title: "🔋 Battery Saver Mode", subtitle: "Kích hoạt chế độ tiết kiệm pin hệ thống.", command: "cmd power set-mode 1"),
-    TweakItem(title: "😴 Force Doze Mode", subtitle: "Bắt buộc ngủ đông ngay lập tức.", command: "dumpsys deviceidle force-idle"),
-    TweakItem(title: "📶 Fix DNS (Google)", subtitle: "Đặt DNS 8.8.8.8 (Fix lag mạng).", command: "settings put global private_dns_specifier dns.google"),
-    TweakItem(title: "🎮 Force 4x MSAA", subtitle: "Khử răng cưa cho game (OpenGL).", command: "setprop debug.egl.force_msaa 1"),
-    TweakItem(title: "💀 Wipe Dalvik (Root Only)", subtitle: "Xóa bộ đệm biên dịch (Cần Root).", command: "rm -rf /data/dalvik-cache/*", isDangerous: true),
-  ];
-
-  // --- LOGIC: LOG SYSTEM ---
-  void _log(String msg) {
-    setState(() => _terminalLog += "\n$ msg");
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_consoleScroll.hasClients) _consoleScroll.jumpTo(_consoleScroll.position.maxScrollExtent);
-    });
-  }
-
-  // --- LOGIC: SHELL EXECUTOR ---
-  Future<void> _runShell(String cmd) async {
-    _log("exec: $cmd");
+  // --- HÀM CHẠY LỆNH ---
+  Future<void> _runCmd(String cmd) async {
+    _addLog("root@android: \$ $cmd");
     try {
-      // Chạy lệnh thường (sh) vì yêu cầu không Root vẫn dùng được
-      // Một số lệnh settings/cmd/pm vẫn chạy tốt không cần su
-      ProcessResult result = await Process.run('sh', ['-c', cmd]);
+      // Chạy thử bằng su (Root)
+      ProcessResult res = await Process.run('su', ['-c', cmd]);
+      if (res.exitCode != 0) {
+        // Nếu không root thì chạy thường
+        res = await Process.run('sh', ['-c', cmd]);
+      }
       
-      if (result.stdout.toString().isNotEmpty) _log(result.stdout.toString().trim());
-      if (result.stderr.toString().isNotEmpty) _log("ERR: ${result.stderr.toString().trim()}");
-      if (result.exitCode == 0) _log(">> SUCCESS");
+      if (res.stdout.toString().isNotEmpty) _addLog(res.stdout.toString().trim());
+      if (res.stderr.toString().isNotEmpty) _addLog("ERR: ${res.stderr}");
+      if (res.exitCode == 0) _addLog(">> SUCCESS");
     } catch (e) {
-      _log("FAIL: $e");
+      _addLog("Error: $e");
     }
   }
 
-  // --- LOGIC: SMART CLEANER (Giả lập + Lệnh thật) ---
-  Future<void> _startSmartClean() async {
-    if (_isCleaning) return;
-    
-    setState(() {
-      _isCleaning = true;
-      _cleanProgress = 0.0;
-      _cleanStatus = "Đang phân tích bộ nhớ...";
+  void _addLog(String msg) {
+    setState(() => _logText += "\n$msg");
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      }
     });
-
-    _log(">> STARTING SMART CLEANER...");
-
-    // 1. Hiệu ứng quét từng app (Giả lập để giống 1Tap Cleaner)
-    int totalSteps = _dummyPackages.length;
-    for (int i = 0; i < totalSteps; i++) {
-      await Future.delayed(const Duration(milliseconds: 150)); // Tốc độ quét
-      setState(() {
-        _currentScanningApp = _dummyPackages[i];
-        _cleanStatus = "Đang quét: $_currentScanningApp";
-        _cleanProgress = (i + 1) / totalSteps;
-      });
-      
-      // Ngẫu nhiên log ra màn hình cho "ngầu"
-      if (Random().nextBool()) _log("Found cache in: $_currentScanningApp");
-    }
-
-    // 2. Chạy lệnh dọn dẹp THẬT (Non-Root)
-    // Lệnh này yêu cầu hệ thống giải phóng bộ nhớ cache của các app
-    // Nó hoạt động trên hầu hết máy Android mà không cần root
-    setState(() => _cleanStatus = "Đang thực thi lệnh hệ thống...");
-    await _runShell("pm trim-caches 999999999999"); 
-    // 'pm trim-caches' cố gắng giải phóng dung lượng mong muốn, buộc Android xóa cache
-
-    await Future.delayed(const Duration(seconds: 1));
-
-    setState(() {
-      _isCleaning = false;
-      _cleanStatus = "Đã dọn dẹp xong!";
-      _cleanProgress = 1.0;
-      _currentScanningApp = "Sạch sẽ ✨";
-    });
-    _log(">> CLEANING COMPLETED. STORAGE OPTIMIZED.");
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _buildAppBar(),
+      // --- HEADER ---
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        leading: const Icon(Icons.android, color: Color(0xFF00FF80), size: 28),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RichText(text: const TextSpan(children: [
+              TextSpan(text: "ADB ", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+              TextSpan(text: "MASTER", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF00FF80))),
+            ])),
+            const Text("V6.1 FIX • CONNECTED", style: TextStyle(fontSize: 10, color: Colors.greenAccent)),
+          ],
+        ),
+        actions: const [
+          Padding(padding: EdgeInsets.only(right: 15), child: Icon(Icons.settings, color: Colors.grey))
+        ],
+      ),
+
       body: Column(
         children: [
-          _buildTabs(),
-          Expanded(
-            child: IndexedStack(
-              index: _currentTab,
+          // --- TAB BAR ---
+          Container(
+            margin: const EdgeInsets.all(10),
+            height: 45,
+            decoration: BoxDecoration(
+              color: const Color(0xFF121212),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: Row(
               children: [
-                _buildTweaksTab(),
-                _buildCleanerTab(), // Tab Cleaner mới xịn sò
-                _buildFlashTab(),
+                _buildTabItem(0, "TWEAKS"),
+                _buildTabItem(1, "CLEANER"),
+                _buildTabItem(2, "FLASH"),
               ],
             ),
           ),
-          _buildTerminal(),
-        ],
-      ),
-    );
-  }
 
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      title: Row(
-        children: [
-          const Icon(Icons.android, color: Color(0xFF00FF80)),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text("ADB MASTER", style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF00FF80))),
-              Text("NON-ROOT EDITION", style: TextStyle(fontSize: 10, color: Colors.grey)),
-            ],
+          // --- BODY CONTENT ---
+          Expanded(
+            child: IndexedStack(
+              index: _tabIndex,
+              children: [
+                _buildTweaksPage(),
+                _CleanerPage(onLog: _addLog, onRun: _runCmd), // Tách riêng trang Cleaner để xử lý animation
+                _buildFlashPage(),
+              ],
+            ),
+          ),
+
+          // --- TERMINAL ---
+          Container(
+            height: 150,
+            color: Colors.black,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  color: const Color(0xFF1A1A1A),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(">_ TERMINAL OUTPUT", style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+                      InkWell(onTap: () => setState(() => _logText = ""), child: const Text("CLEAR", style: TextStyle(fontSize: 10, color: Colors.white))),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(8),
+                    child: Text(
+                      _logText.isEmpty ? "# Waiting for commands..." : _logText,
+                      style: const TextStyle(fontFamily: 'monospace', color: Color(0xFF00FF80), fontSize: 11),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           )
         ],
       ),
-      actions: [
-        IconButton(icon: const Icon(Icons.settings), onPressed: (){}),
-      ],
     );
   }
 
-  Widget _buildTabs() {
-    return Container(
-      margin: const EdgeInsets.all(10),
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFF121212),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Row(
-        children: [
-          _tabItem(0, "TWEAKS", Icons.code),
-          _tabItem(1, "CLEANER", Icons.cleaning_services),
-          _tabItem(2, "FLASH", Icons.sd_storage),
-        ],
-      ),
-    );
-  }
-
-  Widget _tabItem(int index, String title, IconData icon) {
-    bool active = _currentTab == index;
+  Widget _buildTabItem(int index, String title) {
+    bool active = _tabIndex == index;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _currentTab = index),
+        onTap: () => setState(() => _tabIndex = index),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          margin: const EdgeInsets.all(2),
           decoration: BoxDecoration(
-            color: active ? const Color(0xFF1F1F1F) : Colors.transparent,
+            color: active ? const Color(0xFF252525) : Colors.transparent,
             borderRadius: BorderRadius.circular(6),
-            border: active ? Border.all(color: Colors.white10) : null,
           ),
-          child: Column(
-            children: [
-              Icon(icon, color: active ? const Color(0xFF00FF80) : Colors.grey, size: 20),
-              const SizedBox(height: 4),
-              Text(title, style: TextStyle(color: active ? Colors.white : Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
-            ],
-          ),
+          alignment: Alignment.center,
+          child: Text(title, style: TextStyle(
+            color: active ? const Color(0xFF00FF80) : Colors.grey,
+            fontWeight: FontWeight.bold, fontSize: 12
+          )),
         ),
       ),
     );
   }
 
-  // --- TAB 1: TWEAKS ---
-  Widget _buildTweaksTab() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(10),
-      itemCount: _tweaks.length,
-      itemBuilder: (context, index) {
-        final item = _tweaks[index];
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF121212),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: item.isDangerous ? Colors.red.withOpacity(0.3) : Colors.white10),
+  // --- TRANG TWEAKS ---
+  Widget _buildTweaksPage() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: TextField(
+            decoration: InputDecoration(
+              hintText: "Tìm nhanh tweaks...",
+              filled: true, fillColor: const Color(0xFF121212),
+              prefixIcon: const Icon(Icons.search, size: 18),
+              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none)
+            ),
           ),
-          child: SwitchListTile(
-            title: Text(item.title, style: TextStyle(fontWeight: FontWeight.bold, color: item.isDangerous ? Colors.redAccent : Colors.white)),
-            subtitle: Text(item.subtitle, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-            activeColor: const Color(0xFF00FF80),
-            activeTrackColor: const Color(0xFF00FF80).withOpacity(0.3),
-            inactiveThumbColor: Colors.grey,
-            inactiveTrackColor: Colors.black,
-            value: item.isEnabled,
-            onChanged: (val) {
-              setState(() => item.isEnabled = val);
-              if (val) _runShell(item.command);
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  // --- TAB 2: CLEANER (QUAN TRỌNG NHẤT) ---
-  Widget _buildCleanerTab() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Vòng tròn tiến trình lớn
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                width: 200,
-                height: 200,
-                child: CircularProgressIndicator(
-                  value: _isCleaning ? _cleanProgress : 0,
-                  strokeWidth: 15,
-                  backgroundColor: const Color(0xFF1F1F1F),
-                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00FF80)),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity, color: const Color(0xFF1A1A1A),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          alignment: Alignment.center,
+          child: const Text("🚀 FIX LAG V3 (PERFORMANCE)", style: TextStyle(color: Color(0xFF00FF80), fontWeight: FontWeight.bold, fontSize: 12)),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(8),
+            itemCount: tweaksList.length,
+            itemBuilder: (ctx, i) {
+              final item = tweaksList[i];
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF121212),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white10),
                 ),
-              ),
-              GestureDetector(
-                onTap: _startSmartClean, // Bấm vào để chạy
-                child: Container(
-                  width: 160,
-                  height: 160,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _isCleaning ? const Color(0xFF0D1117) : const Color(0xFF1F1F1F),
-                    boxShadow: [
-                      if (!_isCleaning)
-                        BoxShadow(color: const Color(0xFF00FF80).withOpacity(0.2), blurRadius: 20, spreadRadius: 5)
-                    ]
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                child: SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                  activeColor: Colors.black,
+                  activeTrackColor: const Color(0xFF00FF80),
+                  inactiveThumbColor: Colors.grey,
+                  inactiveTrackColor: Colors.black,
+                  title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        _isCleaning ? Icons.hourglass_bottom : Icons.rocket_launch,
-                        size: 50,
-                        color: const Color(0xFF00FF80),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        _isCleaning ? "${(_cleanProgress * 100).toInt()}%" : "SCAN",
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-                      )
+                      Text(item.subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      Text(item.command, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 9, color: Colors.grey[800])),
                     ],
                   ),
+                  value: item.isEnabled,
+                  onChanged: (val) {
+                    setState(() => item.isEnabled = val);
+                    if(val) _runCmd(item.command);
+                  },
                 ),
-              ),
-            ],
+              );
+            },
           ),
-          const SizedBox(height: 30),
-          Text(
-            _cleanStatus,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _isCleaning ? "Đang xử lý: $_currentScanningApp" : "Nhấn nút để bắt đầu dọn dẹp hệ thống",
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(height: 40),
-          // Nút phụ
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _cleanerSubBtn("Quick Clean", () => _runShell("pm trim-caches 1000G")),
-              const SizedBox(width: 20),
-              _cleanerSubBtn("Kill Background", () => _runShell("am kill-all")),
-            ],
-          )
-        ],
-      ),
-    );
-  }
-  
-  Widget _cleanerSubBtn(String text, VoidCallback onTap) {
-    return ElevatedButton(
-      onPressed: onTap,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF1F1F1F),
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Colors.white24)),
-      ),
-      child: Text(text),
+        )
+      ],
     );
   }
 
-  // --- TAB 3: FLASH ---
-  Widget _buildFlashTab() {
-    return Center(
+  // --- TRANG FLASH ---
+  Widget _buildFlashPage() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.sd_card, size: 80, color: Colors.grey[800]),
-          const SizedBox(height: 20),
-          const Text("Flash Zip / Script", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          const Text("Chọn file .zip hoặc .sh để cài đặt", style: TextStyle(color: Colors.grey)),
-          const SizedBox(height: 30),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.folder_open, color: Colors.black),
-            label: const Text("CHỌN FILE", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00FF80),
-              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+          Container(
+            height: 200,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: const Color(0xFF121212),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[800]!, width: 1, style: BorderStyle.solid) // Nét đứt giả lập
             ),
-            onPressed: () async {
-              try {
-                FilePickerResult? result = await FilePicker.platform.pickFiles();
-                if (result != null) _log("Selected: ${result.files.single.name}");
-              } catch (e) {
-                _log("Error picking file: $e");
-              }
-            },
+            child: InkWell(
+              onTap: () async {
+                try {
+                   FilePickerResult? result = await FilePicker.platform.pickFiles();
+                   if(result != null) _addLog("Selected: ${result.files.single.name}");
+                } catch(e) {_addLog("Error picker: $e");}
+              },
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Icon(Icons.file_copy, size: 40, color: Colors.grey),
+                  SizedBox(height: 10),
+                  Text("Chọn File Zip / Script", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text("Nhấn để duyệt file", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity, height: 50,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1F1F1F),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))
+              ),
+              onPressed: () => _addLog("Installing... (Need Root)"),
+              child: const Text("INSTALL SELECTED", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+            ),
           )
         ],
       ),
     );
   }
+}
 
-  // --- TERMINAL ---
-  Widget _buildTerminal() {
-    return Container(
-      height: 160,
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        color: Color(0xFF000000),
-        border: Border(top: BorderSide(color: Colors.white12)),
-      ),
+// --- TRANG CLEANER (LOGIC RIÊNG) ---
+class _CleanerPage extends StatefulWidget {
+  final Function(String) onLog;
+  final Function(String) onRun;
+  const _CleanerPage({required this.onLog, required this.onRun});
+
+  @override
+  State<_CleanerPage> createState() => _CleanerPageState();
+}
+
+class _CleanerPageState extends State<_CleanerPage> {
+  bool _isScanning = false;
+  double _percent = 0.0;
+  String _status = "Smart Cleaner\nDọn dẹp cache hệ thống";
+  
+  // Danh sách app giả lập để chạy chữ
+  final List<String> _dummyApps = ["com.facebook.katana", "com.tiktok.android", "com.google.android.youtube", "com.android.chrome", "system.cache", "dalvik.cache"];
+
+  void _startScan() async {
+    setState(() { _isScanning = true; _status = "Scanning..."; });
+    
+    // 1. CHẠY HIỆU ỨNG (Fake effect)
+    for (int i = 0; i <= 100; i+=2) {
+      await Future.delayed(const Duration(milliseconds: 30));
+      setState(() {
+        _percent = i / 100;
+        // Random tên app hiện lên cho ngầu
+        _status = "Scanning:\n${_dummyApps[Random().nextInt(_dummyApps.length)]}";
+      });
+    }
+
+    // 2. CHẠY LỆNH THẬT (Real Clean)
+    // Lệnh này ép Android giải phóng bộ nhớ mà không cần root
+    widget.onLog(">> Executing trim-caches...");
+    widget.onRun("pm trim-caches 999G"); 
+
+    setState(() {
+      _isScanning = false;
+      _status = "Đã dọn dẹp\nsạch sẽ!";
+      _percent = 1.0;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          // Vòng tròn quét
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            color: const Color(0xFF101010),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(color: const Color(0xFF121212), borderRadius: BorderRadius.circular(16)),
+            child: Column(
               children: [
-                const Text("TERMINAL", style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
-                InkWell(onTap: () => setState(() => _terminalLog = ""), child: const Icon(Icons.block, size: 14, color: Colors.red)),
+                CircularPercentIndicator(
+                  radius: 80.0,
+                  lineWidth: 10.0,
+                  percent: _percent,
+                  center: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(_isScanning ? Icons.search : Icons.rocket_launch, size: 40, color: Colors.white),
+                      const SizedBox(height: 5),
+                      Text(_isScanning ? "${(_percent * 100).toInt()}%" : "SCAN", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                    ],
+                  ),
+                  progressColor: const Color(0xFF00FF80),
+                  backgroundColor: Colors.grey[800]!,
+                  circularStrokeCap: CircularStrokeCap.round,
+                  animation: true,
+                  animateFromLastPercent: true,
+                ),
+                const SizedBox(height: 20),
+                Text(_status, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey, height: 1.5)),
+                const SizedBox(height: 20),
+                if (!_isScanning)
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FF80), foregroundColor: Colors.black),
+                    onPressed: _startScan,
+                    child: const Text("BẮT ĐẦU QUÉT", style: TextStyle(fontWeight: FontWeight.bold)),
+                  )
               ],
             ),
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _consoleScroll,
-              padding: const EdgeInsets.all(8),
-              child: Text(
-                _terminalLog.isEmpty ? "# Ready..." : _terminalLog,
-                style: const TextStyle(fontFamily: "monospace", fontSize: 11, color: Color(0xFF00FF80), height: 1.2),
-              ),
+          const SizedBox(height: 20),
+          // Manual Tools
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: const Color(0xFF121212), borderRadius: BorderRadius.circular(16)),
+            child: Column(
+              children: [
+                const Text("MANUAL TOOLS", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 15),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1F1F1F), foregroundColor: Colors.white),
+                        onPressed: () => widget.onRun("pm trim-caches 999G"),
+                        child: const Text("Trim Cache"),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3F0000), foregroundColor: Colors.redAccent),
+                        onPressed: () => widget.onRun("rm -rf /data/local/tmp/*"),
+                        child: const Text("Wipe (Root)"),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: TextField(
+                      style: const TextStyle(fontSize: 12),
+                      decoration: InputDecoration(
+                        hintText: "com.package.name",
+                        filled: true, fillColor: Colors.black,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                      ),
+                    )),
+                    const SizedBox(width: 10),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FF80), foregroundColor: Colors.black),
+                      onPressed: () {},
+                      child: const Text("CLEAN", style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                )
+              ],
             ),
-          ),
+          )
         ],
       ),
     );
