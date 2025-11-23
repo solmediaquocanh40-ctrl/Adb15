@@ -1,7 +1,7 @@
-name: Build Android APK
+name: Build Android App
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Cho phép bấm nút chạy thủ công
 
 jobs:
   build:
@@ -17,19 +17,20 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.19.0'
-          channel: 'stable'
       
-      # Bước này cực quan trọng: Tự động tạo khung dự án Android
-      - name: Create Android Project
+      # Tự động sửa lỗi thiếu thư mục Android
+      - name: Fix Android Project
         run: |
           flutter create . --org com.adbmaster
           flutter pub get
 
+      # Build APK
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons
       
+      # Upload file lên để tải về
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: adb-master-v15
+          name: ADB-Master-Final
           path: build/app/outputs/flutter-apk/app-release.apk
