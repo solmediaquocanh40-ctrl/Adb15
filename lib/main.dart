@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
@@ -25,7 +24,6 @@ class TweakItem {
 }
 
 final List<TweakItem> allTweaks = [
-  // Các lệnh này CẦN ROOT mới có tác dụng thực sự
   TweakItem(title: "V3: Anim 0.25x (Balanced)", subtitle: "Animation 0.25, phản hồi 230ms.", command: "settings put global window_animation_scale 0.25; settings put global transition_animation_scale 0.25; settings put global animator_duration_scale 0.25"),
   TweakItem(title: "V3: Anim 0.0x (Gaming)", subtitle: "Tắt hoàn toàn hiệu ứng.", command: "settings put global window_animation_scale 0; settings put global transition_animation_scale 0; settings put global animator_duration_scale 0"),
   TweakItem(title: "Force GPU Rendering", subtitle: "Bắt buộc dùng GPU vẽ giao diện.", command: "setprop debug.hwui.renderer skiavk; setprop debug.hwui.force_dark true"),
@@ -61,50 +59,70 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   int _tabIndex = 0;
   String _logText = "";
+  String _selectedFileName = "Chưa chọn file nào";
   final ScrollController _scrollController = ScrollController();
 
-  // --- HÀM CHẠY LỆNH (ĐÃ FIX LỖI NO SUCH FILE) ---
+  // --- HÀM CHẠY LỆNH (FIX MẠNH) ---
   Future<void> _runCmd(String cmd) async {
     _addLog("> Exec: $cmd");
-    
     try {
-      // Bước 1: Cố gắng chạy bằng SU (Root)
-      // Dùng runZoned để bắt lỗi nếu máy không có file 'su'
-      await Process.run('su', ['-c', cmd]).then((res) {
-        if (res.exitCode == 0) {
-           _logOutput(res); // Root chạy ngon
-        } else {
-           // Root từ chối -> Chạy thường
-           _runUserCmd(cmd); 
-        }
-      }).catchError((e) {
-        // LỖI "No such file" sẽ nhảy vào đây
-        // Tức là máy không có Root -> Chuyển sang chạy thường
-        _addLog("(!) No Root detected. Switching to User mode...");
-        _runUserCmd(cmd);
-      });
+      // Thử chạy với 'sh -c' trước để test lệnh thường
+      // Nếu lệnh cần root, ta dùng 'su -c'
+      // Lưu ý: Trên Android thật, 'su' chỉ có khi đã Root
+      ProcessResult res;
+      try {
+         // Ưu tiên chạy su nếu có thể
+         res = await Process.run('su', ['-c', cmd]);
+      } catch (e) {
+         // Không có su thì chạy sh
+         res = await Process.run('sh', ['-c', cmd]);
+      }
 
+      if (res.stdout.toString().isNotEmpty) _addLog(res.stdout.toString().trim());
+      if (res.stderr.toString().isNotEmpty) _addLog("Msg: ${res.stderr.toString().trim()}");
+      if (res.exitCode == 0) _addLog(">> SUCCESS");
+      
     } catch (e) {
       _addLog("Error: $e");
     }
   }
 
-  Future<void> _runUserCmd(String cmd) async {
+  // --- HÀM CHỌN FILE & FLASH ---
+  Future<void> _pickAndFlashFile() async {
     try {
-      final res = await Process.run('sh', ['-c', cmd]);
-      _logOutput(res);
-    } catch (e) {
-      _addLog("User Mode Failed: $e");
-    }
-  }
+      FilePickerResult? result = await FilePicker.platform.pickFiles();
 
-  void _logOutput(ProcessResult res) {
-    if (res.stdout.toString().isNotEmpty) _addLog(res.stdout.toString().trim());
-    if (res.stderr.toString().isNotEmpty) {
-       // Một số lệnh hệ thống dù chạy được vẫn báo vài dòng lỗi warning, ta vẫn hiện ra
-       _addLog("Info/Err: ${res.stderr.toString().trim()}");
+      if (result != null) {
+        String? filePath = result.files.single.path;
+        String fileName = result.files.single.name;
+        
+        setState(() {
+          _selectedFileName = fileName;
+        });
+        
+        _addLog("Selected: $filePath");
+
+        // Logic Flash (Mô phỏng hoặc thực thi nếu là .sh)
+        if (fileName.endsWith(".sh")) {
+           _addLog(">> Detected Shell Script. Executing...");
+           // Cấp quyền thực thi
+           await _runCmd("chmod +x $filePath");
+           // Chạy script
+           await _runCmd("sh $filePath");
+        } else if (fileName.endsWith(".zip")) {
+           _addLog(">> Detected ZIP. Flashing via Magisk (if supported)...");
+           // Lệnh giả lập flash module magisk (cần root thật để chạy)
+           await _runCmd("magisk --install-module $filePath");
+        } else {
+           _addLog(">> Unknown file type. Cannot flash directly.");
+        }
+
+      } else {
+        _addLog(">> File selection canceled.");
+      }
+    } catch (e) {
+      _addLog("Picker Error: $e");
     }
-    if (res.exitCode == 0) _addLog(">> SUCCESS");
   }
 
   void _applySelectedTweaks() async {
@@ -148,7 +166,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Expanded(child: IndexedStack(index: _tabIndex, children: [
             _buildTweaksPage(),
             _CleanerPage(onLog: _addLog, onRun: _runCmd),
-            _buildFlashPage(),
+            _buildFlashPage(), // Tab Flash đã được cập nhật
           ])),
           _buildTerminal(),
         ],
@@ -204,7 +222,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ]);
   }
 
-  Widget _buildFlashPage() => const Center(child: Text("Flash Feature (Updating...)", style: TextStyle(color: Colors.grey)));
+  // --- TAB FLASH ĐÃ NÂNG CẤP ---
+  Widget _buildFlashPage() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: const Color(0xFF121212),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[800]!),
+            ),
+            child: Column(
+              children: [
+                const Icon(Icons.file_present, size: 50, color: Color(0xFF00FF7F)),
+                const SizedBox(height: 15),
+                Text(_selectedFileName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                const SizedBox(height: 5),
+                const Text("Support: .zip, .sh", style: TextStyle(color: Colors.grey, fontSize: 12)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 30),
+          SizedBox(
+            width: double.infinity, height: 50,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.folder_open),
+              label: const Text("CHỌN FILE & FLASH"),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1F1F1F), foregroundColor: Colors.white),
+              onPressed: _pickAndFlashFile, // Gọi hàm chọn file thật
+            ),
+          )
+        ],
+      ),
+    );
+  }
 
   Widget _buildTerminal() {
     return Container(
@@ -244,8 +299,10 @@ class _CleanerPageState extends State<_CleanerPage> {
       await Future.delayed(const Duration(milliseconds: 20));
       setState(() => _percent = i / 100);
     }
-    widget.onLog(">> Running Smart Clean (Non-Root)...");
+    widget.onLog(">> Running Smart Clean...");
+    // Chạy cả lệnh root và non-root để chắc chắn dọn được
     widget.onRun("pm trim-caches 999G"); 
+    widget.onRun("am kill-all"); // Thử kill app ngầm (cần quyền cao)
     setState(() { _isScanning = false; _status = "Hoàn tất!"; _percent = 1.0; });
   }
 
@@ -265,5 +322,3 @@ class _CleanerPageState extends State<_CleanerPage> {
     ]));
   }
 }
-
-
